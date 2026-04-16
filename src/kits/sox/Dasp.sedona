@@ -71,7 +71,8 @@ class Dasp
   define int RECEIVE_TIMEOUT  = 0x0c  // 0x31 (c,1)
   define int ERROR_CODE       = 0x0d  // 0x35 (d,1)
   define int PLATFORM_ID      = 0x0e  // 0x3a (e,2)
-  
+  define int CRED_SALT        = 0x0f  // 0x3f (f,3)  -- BYTES, optional CHALLENGE field
+
 ////////////////////////////////////////////////////////////////
 // Error Codes
 ///////////////////////////////////////////////////////////////

@@ -369,9 +369,37 @@ public class DaspSession
       throw new DaspException("Unsupported algorithm", DIGEST_NOT_SUPPORTED);
     }
 
-    // compute digest
+    // compute pre-image
     MessageDigest md = MessageDigest.getInstance("SHA");
-    byte[] cred = md.digest((user + ":" + pass).getBytes("UTF-8"));
+    byte[] cred;
+    byte[] salt = challenge.credSalt();
+    if (salt != null && salt.length > 0)
+    {
+      // Salted path: cred = iter-SHA1(salt || utf8(pass)), iter from
+      // options (default 4096).  The server advertised the salt in the
+      // CHALLENGE header because this account has a credSalt property.
+      int iter = 4096;
+      try { iter = Integer.parseInt(System.getProperty("sedona.dasp.credIter", "4096")); }
+      catch (Exception ignore) {}
+      byte[] passBytes = pass.getBytes("UTF-8");
+      md.reset();
+      md.update(salt);
+      md.update(passBytes);
+      cred = md.digest();
+      for (int i = 1; i < iter; i++)
+      {
+        md.reset();
+        cred = md.digest(cred);
+      }
+    }
+    else
+    {
+      // Legacy unsalted path retained for accounts that have not yet
+      // been reprovisioned with a salt.
+      cred = md.digest((user + ":" + pass).getBytes("UTF-8"));
+    }
+
+    // compute response digest = SHA1(cred || nonce)
     md.reset();
     md.update(cred);
     md.update(challenge.nonce());

@@ -13,9 +13,21 @@ class Crypto
 { 
 
   **
-  ** Generate the SHA-1 hash for the input bytes.  
+  ** Generate the SHA-1 hash for the input bytes.
   ** The 20 byte result is stored in the output pointer.
   **
   native static void sha1(byte[] in, int inOff, int len, byte[] output, int outOff)
-  
+
+  **
+  ** Iterated SHA-1 (PBKDF1-style) used for salted credential storage.
+  ** Computes SHA1(salt || in) and then re-hashes the 20-byte digest
+  ** (iter-1) more times, writing the final 20 bytes into output.
+  ** iter must be >= 1.
+  **
+  static void sha1Iter(byte[] salt, int saltLen,
+                       byte[] in,   int inOff, int inLen,
+                       int iter,
+                       byte[] output, int outOff)
+  // implemented in Sedona helper on SVM side; see SoxSession for client
+
 }

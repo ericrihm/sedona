@@ -150,6 +150,7 @@ public class DaspMsg implements DaspConst
         case RECEIVE_TIMEOUT:   receiveTimeout  = u2 * 1000L; break;
         case ERROR_CODE:        errorCode       = u2;     break;
         case PLATFORM_ID:       platformId      = str;    break;
+        case CRED_SALT:         credSalt        = bytes;  break;
         default: throw new IllegalStateException("Unknown field id: " + id);
       }
     }
@@ -201,6 +202,7 @@ public class DaspMsg implements DaspConst
     if (hasReceiveTimeout)       { num++; buf[pos++] = (byte)RECEIVE_TIMEOUT;  pos = u2(pos, buf, (int)(receiveTimeout/1000L)); }
     if (errorCode > -1)          { num++; buf[pos++] = (byte)ERROR_CODE;       pos = u2(pos, buf, errorCode); }
     if (platformId != null)      { num++; buf[pos++] = (byte)PLATFORM_ID;      pos = str(pos, buf, platformId); }
+    if (credSalt != null)        { num++; buf[pos++] = (byte)CRED_SALT;        pos = bytes(pos, buf, credSalt); }
 
     // backpatch msgType and numFields
     buf[4] = (byte)((msgType << 4) | num);
@@ -708,7 +710,18 @@ public class DaspMsg implements DaspConst
   protected long    receiveTimeout = -1;
   protected int     errorCode = -1;
   protected String  platformId;
-  
+  protected byte[]  credSalt;
+
+  /** Optional per-user credential salt advertised in CHALLENGE.  Null if
+   *  the server did not send one (legacy unsalted account). */
+  public final byte[] credSalt() { return credSalt; }
+  public final void setCredSalt(byte[] s)
+  {
+    if (s == null) { this.credSalt = null; return; }
+    this.credSalt = new byte[s.length];
+    System.arraycopy(s, 0, this.credSalt, 0, s.length);
+  }
+
   // payload bytes
   protected byte[] payload = noBytes;
 }

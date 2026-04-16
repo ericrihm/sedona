@@ -36,10 +36,29 @@ class User
 // Properties
 ////////////////////////////////////////////////////////////////
 
-  ** This is the credentials 160 bit SHA-1 digest of 
-  ** the UTF-8 string "username:password".
-  @config property Buf(20) cred                                 
-    
+  ** This is the credentials 160 bit SHA-1 digest.
+  ** If credSalt.size == 0 this is the legacy digest of the UTF-8
+  ** string "username:password".  If credSalt.size > 0 this is the
+  ** iterated SHA-1 digest computed as PBKDF1-SHA1(credSalt || pass,
+  ** credIter) -- see UserUtil.credentialsSalted and SoxSession.
+  @config property Buf(20) cred
+
+  ** Per-user random salt.  Empty (size == 0) selects the legacy
+  ** unsalted SHA1("user:pass") credential path for backward
+  ** compatibility with previously provisioned apps.  New accounts
+  ** should be provisioned with a 16-byte random salt.
+  @config property Buf(16) credSalt
+
+  ** Iteration count for the salted credential KDF.  Ignored when
+  ** credSalt.size == 0.  Default 4096.
+  @config property int credIter = 4096
+
+  ** Set to true at runtime when an authentication has succeeded
+  ** against the legacy unsalted digest.  Not persisted -- the
+  ** server never observes plaintext so it cannot auto-upgrade;
+  ** this is purely an advisory flag for tooling.
+  bool legacyAuthSeen
+
   ** Permissions mask which grant this user specific permissions
   ** in the four security groups.  Each byte in the permission mask
   ** is a bitmask of the 7 permissions for groups 0 to 3.

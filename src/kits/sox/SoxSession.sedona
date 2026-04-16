@@ -38,30 +38,34 @@ class SoxSession
   ** Receive hello and respond with challenge.
   **
   void challenge(SoxService service, int numFields)
-  {         
-    // hello fields    
+  {
+    // hello fields
     int version         = -1
     int remoteId        = -1
     int remoteIdealMax  = Dasp.IDEAL_MAX_DEF
     int remoteTimeout   = Dasp.RECEIVE_TIMEOUT_DEF
-    
-    // parse hello fields    
+    this.pendingUsername = null
+
+    // parse hello fields
     BufInStream in = service.in
     for (int i=0; i<numFields; ++i)
     {
       int headerId = in.read()
       int typeId = headerId & 0x3
       headerId >>= 2
-      
+
       switch (headerId)
-      {          
+      {
         case Dasp.VERSION:         version        = in.readU2(); break
         case Dasp.REMOTE_ID:       remoteId       = in.readU2(); break
         case Dasp.IDEAL_MAX:       idealMax       = in.readU2(); break
-        case Dasp.RECEIVE_TIMEOUT: remoteTimeout  = in.readU2(); break        
+        case Dasp.RECEIVE_TIMEOUT: remoteTimeout  = in.readU2(); break
+        case Dasp.USERNAME:
+          this.pendingUsername = in.readStrInPlace(SoxCommands.tempStr1)
+          break
         default: skipHeader(in, typeId)
       }
-    }   
+    }
     
     // tune the session parameters
     this.remoteId       = remoteId      
@@ -91,17 +95,31 @@ class SoxSession
 
     // generate nonce
     nonce = (long)Sys.rand() << 32 | (long)Sys.rand()
-    
+
     // send back challenge
     OutStream out = prepare(service, Dasp.CHALLENGE, sendWindow.seqNum)
-    out.write(Dasp.REMOTE_ID << 2 | Dasp.U2);    
+    out.write(Dasp.REMOTE_ID << 2 | Dasp.U2);
       out.writeI2(id())
-    out.write(Dasp.NONCE << 2 | Dasp.BYTES); 
-      out.write(8); 
+    out.write(Dasp.NONCE << 2 | Dasp.BYTES);
+      out.write(8);
       out.writeI8(nonce)
-    service.packet.bytes[4] |= 2  // header count    
+    int hdrCount = 2
+
+    // if the requested username resolves to a user with a configured
+    // per-user salt, advertise it so the client can derive the same
+    // salted pre-image.  Users without a salt remain on the legacy
+    // SHA1("user:pass") path.
+    User u = (User)service.userService?.lookupByName(this.pendingUsername)
+    if (u != null && u.credSalt.size > 0)
+    {
+      out.write(Dasp.CRED_SALT << 2 | Dasp.BYTES)
+      out.write(u.credSalt.size)
+      out.writeBytes(u.credSalt.bytes, 0, u.credSalt.size)
+      hdrCount++
+    }
+    service.packet.bytes[4] |= hdrCount
     service.send(this)
-  }       
+  }
 
   **
   ** Receive authenticate and respond with welcome.
@@ -170,22 +188,40 @@ class SoxSession
   ** return true, or return false if rejected.
   **
   bool authenticate(SoxService service, Str username, byte[] digest, int digestOff, int digestLen)
-  {                   
-    // lookup user by name                     
+  {
+    // lookup user by name
     user = (User)service.userService?.lookupByName(username)
     if (user == null || user.type != User.type) return false
-    
+
     // create the digest of the actual credentials - we reuse
     // the packet buffer itself for the result by assuming
     // the digest leaves plenty of room afterwards
+    //
+    // user.cred holds either:
+    //   - legacy: SHA1("user:pass")              when credSalt.size == 0
+    //   - salted: iter-SHA1(credSalt || pass)    when credSalt.size  > 0
+    // Either way the on-wire challenge/response is unchanged:
+    //   client_digest == SHA1(user.cred || nonce)
+    // The fix moves the offline-cracking-resistant work into how
+    // user.cred is derived at provisioning time; the wire protocol
+    // only gains an optional CRED_SALT CHALLENGE field so the client
+    // can compute the same user.cred value.
     authTemp.size = 0
     authTempOut.writeBytes(user.cred.bytes, 0, user.cred.size)
-    authTempOut.writeI8(nonce)     
+    authTempOut.writeI8(nonce)
     Crypto.sha1(authTemp.bytes, 0, authTemp.size, authDigest, 0)
-    
-    // verify if digests are equal                        
-    return Sys.compareBytes(authDigest, 0, digest, digestOff, digestLen) == 0
-  }                 
+
+    // verify if digests are equal
+    if (Sys.compareBytes(authDigest, 0, digest, digestOff, digestLen) != 0)
+      return false
+
+    // Record that a legacy-unsalted credential was just used, so an
+    // operator rotating passwords next time can opt the account into
+    // the salted path.  We cannot auto-upgrade server-side because
+    // the server never observes the plaintext password.
+    if (user.credSalt.size == 0) user.legacyAuthSeen = true
+    return true
+  }
   
   private static inline Buf(32) authTemp      
   private static inline BufOutStream(authTemp) authTempOut
@@ -339,6 +375,7 @@ class SoxSession
   long lastSendTicks                 // Ticks of last send
   bool allTreeEvents                 // Subscribed to all component tree events
   long nonce                         // Nonce used for authentication
+  Str pendingUsername                // Username observed in HELLO, used to pick salt in CHALLENGE
   User user                          // Authenticated user for session
   inline ReceiveWindow receiveWindow // Sliding window for incoming messages 
   inline SendWindow sendWindow       // Sliding window for outgoing messages 
