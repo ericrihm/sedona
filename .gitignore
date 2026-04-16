@@ -24,3 +24,7 @@ sedona-*.zip
 *.swo
 .DS_Store
 statics/*
+
+# AI assistant config
+CLAUDE.md
+.claude/
